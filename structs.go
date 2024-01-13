@@ -1,8 +1,9 @@
 package rbx_manifest
 
 type RobloxPkgFile struct {
-	FileName, Checksum string
-	ZipSize, RawSize   uint32
+	Checksum         []byte
+	FileName         string
+	ZipSize, RawSize int
 }
 
 type RobloxPkgManifest struct {
@@ -10,7 +11,8 @@ type RobloxPkgManifest struct {
 }
 
 type RobloxFile struct {
-	Checksum, Path string
+	Checksum []byte
+	Path     string
 }
 
 type RobloxManifest struct {

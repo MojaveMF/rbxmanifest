@@ -37,3 +37,34 @@ func TestManifestParse(t *testing.T) {
 		t.Errorf("Expected length of 18094 got %d", len(decoded.Files))
 	}
 }
+
+func TestReader(t *testing.T) {
+	fileStream, err := os.Open("./testdata/rbxPkgManifest.txt")
+	if err != nil {
+		t.Error(err)
+	} else if _, err := rbx_manifest.ParsePkgManifestStream(fileStream); err != nil {
+		t.Error(err)
+		return
+	}
+}
+
+func TestPkgEncode(t *testing.T) {
+	rManifest, err := os.ReadFile("./testdata/rbxPkgManifest.txt")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	decoded, err := rbx_manifest.ParsePkgManifest(rManifest)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	file, err := os.Create("./test")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer file.Close()
+	file.Write([]byte(decoded.Encode()))
+}

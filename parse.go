@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"crypto/md5"
 	"errors"
-	"fmt"
+	"io"
 	"strconv"
 )
 
@@ -26,73 +26,19 @@ func isEven(number int) bool {
 	return (number | 1) > number
 }
 
-func splitPkgManifest(manifest []byte) (pkgSplit, error) {
-	splitData := bytes.Split(manifest, newLine)
-	if len(splitData) < 1 || !isEven(len(splitData)-1) {
-		return nil, ErrBadSizedManifest
-	}
-	splitData = splitData[1:] /* This is the same as pop in other languages */
-
-	foundData := make(pkgSplit, len(splitData)/4)
-	for i := 0; i < len(splitData)/4; i++ {
-		index := i * 4
-		if len(splitData) < index+3 {
-			return nil, ErrBadSizedChunk
-		}
-		foundData[i][0] = splitData[index]
-		foundData[i][1] = splitData[index+1]
-		foundData[i][2] = splitData[index+2]
-		foundData[i][3] = splitData[index+3]
-	}
-	return foundData, nil
-}
-
-func deserializePkgManifest(data pkgSplit) (*RobloxPkgManifest, error) {
-	if len(data) < 1 || !isEven(len(data)) {
-		return nil, ErrBadSizedManifest
-	}
-	decodedFiles := make([]RobloxPkgFile, len(data))
-	for i, chunk := range data {
-		/* Decode data and remove any whitespace */
-		name, hash, rZipSize, rSize := string(chunk[0]), string(chunk[1]), string(chunk[2]), string(chunk[3])
-
-		/* Validate length before copying into a smaller buffer */
-		if len(hash) != md5.Size*2 {
-			return nil, ErrBadSizedChecksum
-		}
-
-		ZipSize, err := strconv.Atoi(string(rZipSize))
-		if err != nil {
-			return nil, err
-		}
-		RawSize, err := strconv.Atoi(string(rSize))
-		if err != nil {
-			return nil, err
-		}
-
-		/* We do this to not create more memory */
-		decodedFiles[i].FileName = name
-		decodedFiles[i].Checksum = hash
-		decodedFiles[i].ZipSize = uint32(ZipSize)
-		decodedFiles[i].RawSize = uint32(RawSize)
-	}
-
-	return &RobloxPkgManifest{
-		decodedFiles,
-	}, nil
-}
-
 func ParsePkgManifest(manifest []byte) (*RobloxPkgManifest, error) {
-	splitData, err := splitPkgManifest(manifest)
-	if err != nil {
+	buffer := bytes.Buffer{}
+	if _, err := buffer.Write(manifest); err != nil {
 		return nil, err
 	}
 
-	return deserializePkgManifest(splitData)
+	return ParsePkgManifestStream(&buffer)
 }
 
 func splitManifest(manifest []byte) (manifestSplit, error) {
 	splitData := bytes.Split(manifest, newLine)
+	//splitData = splitData[:len(splitData)-1]
+
 	if !isEven(len(splitData)) {
 		return nil, ErrBadSizedManifest
 	}
@@ -112,11 +58,11 @@ func deserializeManifest(data manifestSplit) (*RobloxManifest, error) {
 	if len(data) < 1 || !isEven(len(data)) {
 		return nil, ErrBadSizedManifest
 	}
-	fmt.Println(data)
+
 	decodedFiles := make([]RobloxFile, len(data))
 	for i, chunk := range data {
 		/* Decode data and remove any whitespace */
-		path, hash := string(chunk[0]), string(chunk[1])
+		path, hash := string(chunk[0]), chunk[1]
 
 		/* Validate length before copying into a smaller buffer */
 		if len(hash) != md5.Size*2 {
@@ -140,4 +86,109 @@ func ParseManifest(manifest []byte) (*RobloxManifest, error) {
 	}
 
 	return deserializeManifest(splitData)
+}
+
+type manifestStream struct {
+	bytesLeft       int
+	currentLineData []byte
+	originStream    io.Reader
+}
+
+func NewStream(stream io.Reader) manifestStream {
+	return manifestStream{
+		bytesLeft:       0,
+		currentLineData: []byte{},
+		originStream:    stream,
+	}
+}
+
+func (S *manifestStream) ReadLine() ([]byte, error) {
+	for {
+		/* Read 1 byte at a time */
+		chunk := make([]byte, 32)
+		i, err := S.originStream.Read(chunk)
+		if errors.Is(err, io.EOF) {
+			S.bytesLeft = i
+		} else if err != nil {
+			return nil, err
+		} else {
+			S.currentLineData = append(S.currentLineData, chunk...)
+		}
+
+		if index := bytes.Index(S.currentLineData, newLine); index != -1 {
+			fetchedData := S.currentLineData[:index]
+			S.currentLineData = S.currentLineData[index+len(newLine):]
+			S.bytesLeft = index - len(newLine)
+
+			return fetchedData, nil
+		} else if err != nil {
+			S.bytesLeft = 0
+			return S.currentLineData, io.EOF
+		}
+	}
+}
+
+func ReadLine(stream io.Reader) ([]byte, error) {
+	lineData := make([]byte, 0)
+	for {
+		/* Read 1 byte at a time */
+		chunk := make([]byte, 1)
+		_, err := stream.Read(chunk)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		lineData = append(lineData, chunk...)
+
+		if index := bytes.Index(lineData, newLine); index != -1 {
+			return lineData[:index], err
+		} else if err != nil {
+			return lineData, err
+		}
+	}
+}
+
+func ParsePkgManifestStream(stream io.Reader) (*RobloxPkgManifest, error) {
+	parsedFiles := []RobloxPkgFile{}
+	Reader := NewStream(stream)
+	for {
+		startLine, err := Reader.ReadLine()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return &RobloxPkgManifest{parsedFiles}, nil
+			}
+			return nil, err
+		} else if string(startLine) == Header {
+			continue
+		}
+
+		checkSum, err := Reader.ReadLine()
+		if err != nil {
+			return nil, err
+		}
+		rawZipSize, err := Reader.ReadLine()
+		if err != nil {
+			return nil, err
+		}
+		rawRawSize, err := Reader.ReadLine()
+		if err != nil {
+			return nil, err
+		}
+
+		zipSize, err := strconv.Atoi(string(rawZipSize))
+		if err != nil {
+			return nil, err
+		}
+		rawSize, err := strconv.Atoi(string(rawRawSize))
+		if err != nil {
+			return nil, err
+		}
+
+		file := RobloxPkgFile{
+			FileName: string(startLine),
+			Checksum: checkSum,
+			RawSize:  rawSize,
+			ZipSize:  zipSize,
+		}
+		parsedFiles = append(parsedFiles, file)
+	}
 }
