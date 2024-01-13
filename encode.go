@@ -25,3 +25,18 @@ func (F *RobloxPkgFile) Encode() []byte {
 	fileData = append(fileData, []byte(numberData)...)
 	return fileData
 }
+
+func (M *RobloxManifest) Encode() []byte {
+	newManifest := []byte{}
+	for _, file := range M.Files {
+		newManifest = append(newManifest, file.Encode()...)
+	}
+	return newManifest
+}
+
+func (F *RobloxFile) Encode() []byte {
+	fileData := []byte{}
+	fileData = append(fileData, []byte(F.Path+NewLine)...)
+	fileData = append(fileData, append(F.Checksum, newLine...)...)
+	return fileData
+}

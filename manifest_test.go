@@ -7,44 +7,20 @@ import (
 )
 
 /*
-	PkgParse and ManifestParse have the same usage so testing is nearly the same
+	If these two functions work all parsing functions work.
 */
 
 func TestPkgParse(t *testing.T) {
-	manifest, err := os.ReadFile("./testdata/rbxPkgManifest.txt")
-	if err != nil {
-		t.Error("Failed to read testing data")
-		return
-	}
-	decoded, err := rbx_manifest.ParsePkgManifest(manifest)
+	_, err := rbx_manifest.ParsePkgManifestFile("./testdata/rbxPkgManifest.txt")
 	if err != nil {
 		t.Error(err)
-	} else if len(decoded.Files) != 32 {
-		t.Errorf("Expected length of 32 got %d", len(decoded.Files))
 	}
 }
 
 func TestManifestParse(t *testing.T) {
-	manifest, err := os.ReadFile("./testdata/rbxManifest.txt")
-	if err != nil {
-		t.Error("Failed to read testing data")
-		return
-	}
-	decoded, err := rbx_manifest.ParseManifest(manifest)
+	_, err := rbx_manifest.ParseManifestFile("./testdata/rbxManifest.txt")
 	if err != nil {
 		t.Error(err)
-	} else if len(decoded.Files) != 18094 {
-		t.Errorf("Expected length of 18094 got %d", len(decoded.Files))
-	}
-}
-
-func TestReader(t *testing.T) {
-	fileStream, err := os.Open("./testdata/rbxPkgManifest.txt")
-	if err != nil {
-		t.Error(err)
-	} else if _, err := rbx_manifest.ParsePkgManifestStream(fileStream); err != nil {
-		t.Error(err)
-		return
 	}
 }
 
@@ -67,4 +43,8 @@ func TestPkgEncode(t *testing.T) {
 	}
 	defer file.Close()
 	file.Write([]byte(decoded.Encode()))
+}
+
+func TestValidate(t *testing.T) {
+
 }

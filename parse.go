@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"errors"
 	"io"
+	"os"
 	"strconv"
 )
 
@@ -128,36 +129,18 @@ func (S *manifestStream) ReadLine() ([]byte, error) {
 	}
 }
 
-func ReadLine(stream io.Reader) ([]byte, error) {
-	lineData := make([]byte, 0)
-	for {
-		/* Read 1 byte at a time */
-		chunk := make([]byte, 1)
-		_, err := stream.Read(chunk)
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
-		lineData = append(lineData, chunk...)
-
-		if index := bytes.Index(lineData, newLine); index != -1 {
-			return lineData[:index], err
-		} else if err != nil {
-			return lineData, err
-		}
-	}
-}
-
 func ParsePkgManifestStream(stream io.Reader) (*RobloxPkgManifest, error) {
 	parsedFiles := []RobloxPkgFile{}
 	Reader := NewStream(stream)
 	for {
-		startLine, err := Reader.ReadLine()
+
+		name, err := Reader.ReadLine()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return &RobloxPkgManifest{parsedFiles}, nil
 			}
 			return nil, err
-		} else if string(startLine) == Header {
+		} else if string(name) == Header {
 			continue
 		}
 
@@ -184,10 +167,51 @@ func ParsePkgManifestStream(stream io.Reader) (*RobloxPkgManifest, error) {
 		}
 
 		file := RobloxPkgFile{
-			FileName: string(startLine),
+			FileName: string(name),
 			Checksum: checkSum,
 			RawSize:  rawSize,
 			ZipSize:  zipSize,
+		}
+		parsedFiles = append(parsedFiles, file)
+	}
+}
+
+func ParsePkgManifestFile(filename string) (*RobloxPkgManifest, error) {
+	stream, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePkgManifestStream(stream)
+}
+
+func ParseManifestFile(filename string) (*RobloxManifest, error) {
+	stream, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	return ParseManifestStream(stream)
+}
+
+func ParseManifestStream(stream io.Reader) (*RobloxManifest, error) {
+	parsedFiles := []RobloxFile{}
+	Reader := NewStream(stream)
+	for {
+		path, err := Reader.ReadLine()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return &RobloxManifest{parsedFiles}, nil
+			}
+			return nil, err
+		}
+		checkSum, err := Reader.ReadLine()
+		if err != nil {
+			println(string(checkSum))
+			return nil, err
+		}
+
+		file := RobloxFile{
+			Path:     string(path),
+			Checksum: checkSum,
 		}
 		parsedFiles = append(parsedFiles, file)
 	}
