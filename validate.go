@@ -17,9 +17,15 @@ var (
 	ErrInvalidChecksum = errors.New("Checksum was invalid")
 )
 
-func validationThread(channel chan error, directory string, files []RobloxFile) {
-	defer close(channel)
+func CloseErrorChannel(channel chan error) {
+	defer func() {
+		/* Stops the entire process from dying */
+		recover()
+	}()
+	close(channel)
+}
 
+func validationThread(channel chan error, directory string, files []RobloxFile) {
 	for _, file := range files {
 		select {
 		case _, ok := <-channel:
@@ -28,10 +34,14 @@ func validationThread(channel chan error, directory string, files []RobloxFile) 
 			}
 		default:
 			if err := file.Validate(directory); err != nil {
+				println(file.Path)
 				channel <- err
+				return
 			}
 		}
 	}
+
+	channel <- nil
 }
 
 func (F *RobloxFile) Validate(directory string) error {
@@ -64,36 +74,25 @@ func chunkBy[T any](items []T, chunkSize int) (chunks [][]T) {
 	return append(chunks, items)
 }
 
-func closeErrors(errors []chan error) {
-	for _, err := range errors {
-		close(err)
-	}
-}
-
 func (M *RobloxManifest) Validate(directory string) error {
 	chunks := chunkBy(M.Files, len(M.Files)/ValidationThreads)
-	errors := make([]chan error, len(chunks))
+	error := make(chan error, len(chunks))
 
-	defer closeErrors(errors)
+	defer CloseErrorChannel(error)
 
-	for index, chunk := range chunks {
-		go validationThread(errors[index], directory, chunk)
+	for _, chunk := range chunks {
+		go validationThread(error, directory, chunk)
 	}
 
 	closedChannels := 0
-	for {
-		if closedChannels == len(errors) {
-			return nil
+	for err := range error {
+		closedChannels++
+		if err != nil {
+			return err
 		}
-		for _, err_chan := range errors {
-			select {
-			case err, ok := <-err_chan:
-				if ok {
-					return err
-				} else {
-					closedChannels++
-				}
-			}
+		if closedChannels >= len(chunks) {
+			break
 		}
 	}
+	return nil
 }

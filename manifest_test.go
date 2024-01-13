@@ -46,5 +46,13 @@ func TestPkgEncode(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-
+	Manifest, err := rbx_manifest.ParseManifestFile("./testdata/rbxManifest.txt")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if err := Manifest.Validate("./testdata/validation/version-88cfc23f4e7d4e4b"); err != nil {
+		t.Error(err)
+		return
+	}
 }
